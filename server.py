@@ -92,7 +92,7 @@ class Server:
             
             for user in s.users:
                 if not user.rx.empty():
-                    print(user.rx.get_nowait()) #respond if got packet
+                    user.rx.get_nowait() #respond if got packet
                     user.tx.put_nowait(s.state.pack_bytes())
         except KeyboardInterrupt:
             print("Keyboard interrupt: killing server")
