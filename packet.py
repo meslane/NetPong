@@ -34,9 +34,9 @@ class GamePacket(Packet):
     def __init__(self):
         self.packstring = 'hhhh16s16sBB'
     
-        self.ball = (80,45) #ball position (x, y)
-        self.p1y = 45 #player 1 y coordinate
-        self.p2y = 45 #player 2 y coordinate
+        self.ball = (0,0) #ball position (x, y)
+        self.p1y = 0 #player 1 y coordinate
+        self.p2y = 0 #player 2 y coordinate
         self.p1_name = ''
         self.p2_name = ''
         self.score = (0,0) #player score (p1, p2)

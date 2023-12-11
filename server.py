@@ -87,6 +87,10 @@ class Server:
         try:
             #update game state
             s.state.ball = (random.randint(0,160), random.randint(0,90))
+            s.state.p1y = random.randint(0,90)
+            s.state.p2y = random.randint(0,90)
+            s.state.p1_name = 'Player 1'
+            s.state.p2_name = 'Player 2'
         
             #remvoe inactive users
             for i in range(len(self.users) -1, -1, -1): #go backwards to delete

@@ -12,18 +12,58 @@ background_color = (20, 20, 20)
 w_screen = 320
 h_screen = 180
 
+paddle_sep = 10
+paddle_len = 9
+
 class Game:
     def __init__(self, **kwargs):
         self.color = kwargs.get('color', (255,255,255))
     
-        self.ball = pygame.Rect(0, 0, 1, 1)
         self.state = packet.GamePacket()
+        
+        self.ball = pygame.Rect(0, 0, 2, 2)
+        self.left_paddle = pygame.Rect(0,0,2,2*paddle_len)
+        self.right_paddle = pygame.Rect(0,0,2,2*paddle_len)
+        
+        self.font = pygame.font.SysFont("Consolas", 14)
+        self.big_font = pygame.font.SysFont("Consolas", 20)
+        
+        self.player1_name = gui.Text('', (w_screen//2 - 100, h_screen - 20), 
+                                    self.font, color = (100,100,100))
+        self.player2_name = gui.Text('', (w_screen//2 + 100, h_screen - 20), 
+                                    self.font, color = (100,100,100))
+                                    
+        self.player1_score = gui.Text('', (w_screen//2 - 100, 20), 
+                                    self.big_font, color = (100,100,100))
+        self.player2_score = gui.Text('', (w_screen//2 + 100, 20), 
+                                    self.big_font, color = (100,100,100))
     
     #take packet data and use it to draw the game surface
     def draw(self, surface):
         #draw ball
-        self.ball.center = self.state.ball
+        self.ball.center = (self.state.ball[0] * 2, self.state.ball[1] * 2)
+        self.left_paddle.center = (paddle_sep, self.state.p1y * 2)
+        self.right_paddle.center = (w_screen - paddle_sep, self.state.p2y * 2)
+        
+        try: #convert from bytes and fail over to string otherwise
+            self.player1_name.text = self.state.p1_name.rstrip(b'\x00').decode("utf_8")
+            self.player2_name.text = self.state.p2_name.rstrip(b'\x00').decode("utf_8")
+        except TypeError:
+            self.player1_name.text = self.state.p1_name
+            self.player2_name.text = self.state.p2_name
+           
+        self.player1_score.text = '{}'.format(self.state.score[0])
+        self.player2_score.text = '{}'.format(self.state.score[1])
+        
         pygame.draw.rect(surface, self.color, self.ball)
+        pygame.draw.rect(surface, self.color, self.left_paddle)
+        pygame.draw.rect(surface, self.color, self.right_paddle)
+        
+        self.player1_name.draw(surface)
+        self.player2_name.draw(surface)
+
+        self.player1_score.draw(surface)
+        self.player2_score.draw(surface)
 
 class Player:
     def __init__(self, username):
@@ -66,18 +106,15 @@ class Player:
                 try:
                     p.connect(ip, port)
                     network_state = "Connected"
-                except (ConnectionRefusedError, TimeoutError):
+                except (ConnectionRefusedError, TimeoutError, socket.gaierror):
                     network_state = "Failed"
             elif network_state == "Connected":
                 try:
                     server_packet = packet.GamePacket()
                     p.sock.sendall(player_packet.pack_bytes())
                     server_packet.unpack_bytes(p.sock.recv(64))
-                    
                     self.rx.put_nowait(server_packet) #send rx packet out of thread
-                    #count += 1
-                    #print(count)
-                except ConnectionResetError:
+                except (ConnectionResetError, ConnectionAbortedError):
                     network_state = 'Failed'
             elif network_state == "Failed":
                 break
@@ -118,11 +155,9 @@ def main():
                         text = '',
                         max_chars = 16)
     
-    connecting_text = big_font.render("Connecting...", False, (255,255,255))
+    connecting_text = gui.Text("Connecting...", (w_screen//2, h_screen//2), big_font)
     
-    failed_text = big_font.render("Connection Failed", False, (128, 0, 0))
-    
-    success_text = big_font.render("Connected", False, (255,255,255))
+    failed_text = gui.Text("Connection Failed", (w_screen//2, h_screen//2), big_font, color = (128,0,0))
     
     #start button
     start_button = gui.Button((w_screen//2, h_screen//2 + 60), (60,15),
@@ -216,11 +251,8 @@ def main():
             #start button
             start_button.draw(screen, scale=(w_screen / window.get_width(), 
                                         h_screen / window.get_height()))
-    
         elif state == "Connect":
-            connecting_text_rect = connecting_text.get_rect(center = (w_screen//2, h_screen//2))
-            screen.blit(connecting_text, connecting_text_rect)
-    
+            connecting_text.draw(screen)
         elif state == "Game":
             #update state if new data is available
             if not client.rx.empty():
@@ -228,12 +260,13 @@ def main():
             
             game.draw(screen)
         elif state == "Failed":
-            failed_text_rect = failed_text.get_rect(center = (w_screen//2, h_screen//2))
-            screen.blit(failed_text, failed_text_rect)
-            
+            failed_text.draw(screen)
             fail_ok_button.draw(screen, scale=(w_screen / window.get_width(), 
                                         h_screen / window.get_height()))
         elif state == "Pause":
+            if not client.rx.empty(): #empty queue while paused to avoid backlog
+                client.rx.get_nowait()
+        
             pause_resume_button.draw(screen, scale=(w_screen / window.get_width(), 
                                         h_screen / window.get_height()))
             
