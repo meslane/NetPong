@@ -1,6 +1,7 @@
 import socket
 import threading
 import queue
+import random
 
 import packet
 
@@ -9,8 +10,8 @@ class User:
         self.sock = kwargs.get('sock', None) #client connection object
         self.addr = kwargs.get('addr', None) #client address
 
-        self.tx = queue.LifoQueue() #outgoing packet queue
-        self.rx = queue.LifoQueue() #incoming packet queue
+        self.tx = queue.Queue() #outgoing packet queue
+        self.rx = queue.Queue() #incoming packet queue
         
         self.timeout = 5
         self.open = True #TEMPORARY
@@ -84,12 +85,17 @@ class Server:
     #server tick function
     def tick(self):
         try:
+            #update game state
+            s.state.ball = (random.randint(0,160), random.randint(0,90))
+        
+            #remvoe inactive users
             for i in range(len(self.users) -1, -1, -1): #go backwards to delete
                 if self.users[i].open == False:
                     self.users[i].join_thread()
                     del self.users[i]
                     print("removed user")
             
+            #respond to users
             for user in s.users:
                 if not user.rx.empty():
                     user.rx.get_nowait() #respond if got packet
