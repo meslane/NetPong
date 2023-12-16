@@ -37,8 +37,8 @@ class GamePacket(Packet):
         self.ball = (0,0) #ball position (x, y)
         self.p1y = 0 #player 1 y coordinate
         self.p2y = 0 #player 2 y coordinate
-        self.p1_name = ''
-        self.p2_name = ''
+        self.p1_name = " "
+        self.p2_name = " "
         self.score = (0,0) #player score (p1, p2)
         
     def pack_bytes(self):

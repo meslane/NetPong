@@ -2,6 +2,7 @@ import socket
 import threading
 import queue
 import random
+import struct
 
 import packet
 
@@ -13,33 +14,42 @@ class User:
         self.tx = queue.Queue() #outgoing packet queue
         self.rx = queue.Queue() #incoming packet queue
         
-        self.timeout = 5
+        self.timeout = 1
         self.open = True #TEMPORARY
         
         self.user_thread = threading.Thread(target = self.loop, daemon = True)
     
     def init_socket(self):
         self.sock.settimeout(self.timeout) #timeout after 1 sec
+        self.sock.setblocking(False)
         self.open = True
     
     def loop(self): #TX/RX loop
         while self.open == True:
+            #print("RX: {}, TX: {}".format(self.rx.qsize(), self.tx.qsize()))
+        
             try:
-                p = self.sock.recv(1024)
-                self.rx.put(p) #grab player state into RX queue
+                p = self.sock.recv(18)
+                self.rx.put_nowait(p) #grab player state into RX queue
                 
                 if p == b'': #close loop if client died
                     print("Client closed connection")
                     self.close()
                     break
+            except socket.error: #if not timed out but no data
+                pass
             except (socket.timeout, ConnectionResetError):
                 print("User timed out, closing connection")
-                self.rx.put(b'') #send swan song to avoid crashing main loop
                 self.close() #close socket if timed out
                 break
-                
-            t = self.tx.get(timeout=1)
-            self.sock.sendall(t) #send latest game state from TX queue
+            
+            try:
+                t = self.tx.get(timeout=1)
+                self.sock.sendall(t) #send latest game state from TX queue
+            except (ConnectionResetError):
+                print("User timed out, closing connection")
+                self.close() #close socket if timed out
+                break
            
             while not self.tx.empty(): #clear queue to avoid sending old data
                 self.tx.get_nowait()
@@ -51,6 +61,7 @@ class User:
         self.user_thread.join()
     
     def close(self):
+        self.rx.put_nowait(b'') #send swan song to avoid crashing main loop
         self.open = False
         self.sock.close()
 
@@ -85,25 +96,38 @@ class Server:
     #server tick function
     def tick(self):
         try:
-            #update game state
-            s.state.ball = (random.randint(0,160), random.randint(0,90))
-            s.state.p1y = random.randint(0,90)
-            s.state.p2y = random.randint(0,90)
-            s.state.p1_name = 'Player 1'
-            s.state.p2_name = 'Player 2'
-        
-            #remvoe inactive users
+            #remove inactive users
             for i in range(len(self.users) -1, -1, -1): #go backwards to delete
                 if self.users[i].open == False:
                     self.users[i].join_thread()
                     del self.users[i]
                     print("removed user")
+                    
+                    if i == 0:
+                        s.state.p1_name = ""
+                    elif i == 1:
+                        s.state.p2_name = ""
             
-            #respond to users
-            for user in s.users:
+            #get data, respond to users
+            for i, user in enumerate(s.users):
+                user_packet = packet.PlayerPacket(None, None)
+            
                 if not user.rx.empty():
-                    user.rx.get_nowait() #respond if got packet
-                    user.tx.put_nowait(s.state.pack_bytes())
+                    try:
+                        user_packet.unpack_bytes(user.rx.get_nowait()) #respond if got packet
+                    
+                        name_str = user_packet.name.rstrip(b'\x00').decode("utf_8")
+                        
+                        if i == 0:
+                            s.state.p1y = user_packet.pos
+                            s.state.p1_name = name_str
+                        elif i == 1:
+                            s.state.p2y = user_packet.pos
+                            s.state.p2_name = name_str
+                    except struct.error:
+                        print("ERROR: attempting to unpack incomplete packet")
+                
+                user.tx.put_nowait(s.state.pack_bytes())
         except KeyboardInterrupt:
             print("Keyboard interrupt: killing server")
             for user in s.users:

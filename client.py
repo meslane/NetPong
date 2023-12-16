@@ -28,9 +28,9 @@ class Game:
         self.font = pygame.font.SysFont("Consolas", 14)
         self.big_font = pygame.font.SysFont("Consolas", 20)
         
-        self.player1_name = gui.Text('', (w_screen//2 - 100, h_screen - 20), 
+        self.player1_name = gui.Text('', (w_screen//2 - 90, h_screen - 20), 
                                     self.font, color = (100,100,100))
-        self.player2_name = gui.Text('', (w_screen//2 + 100, h_screen - 20), 
+        self.player2_name = gui.Text('', (w_screen//2 + 90, h_screen - 20), 
                                     self.font, color = (100,100,100))
                                     
         self.player1_score = gui.Text('', (w_screen//2 - 100, 20), 
@@ -83,16 +83,13 @@ class Player:
     #connect to server
     def connect(self, ip, port):
         self.sock.connect((ip, port))
+        self.sock.setblocking(False)
     
     def close(self):
         self.sock.close()
 
-    def network_thread(self, ip, port, username):
+    def network_thread(self, ip, port):
         network_state = "Connecting"
-
-        p = Player(username)
-        
-        player_packet = packet.PlayerPacket(self.name, self.y)
 
         count = 0
     
@@ -104,27 +101,38 @@ class Player:
             #actions + transitions
             if network_state == "Connecting":
                 try:
-                    p.connect(ip, port)
+                    self.connect(ip, port)
                     network_state = "Connected"
                 except (ConnectionRefusedError, TimeoutError, socket.gaierror):
                     network_state = "Failed"
             elif network_state == "Connected":
                 try:
+                    if not self.tx.empty(): #main net thread
+                        player_packet = self.tx.get()
+                        self.sock.sendall(player_packet.pack_bytes())
+                except ConnectionResetError:
+                    network_state == "Failed"
+        
+                try:
                     server_packet = packet.GamePacket()
-                    p.sock.sendall(player_packet.pack_bytes())
-                    server_packet.unpack_bytes(p.sock.recv(64))
+                    server_packet.unpack_bytes(self.sock.recv(42))
                     self.rx.put_nowait(server_packet) #send rx packet out of thread
+                    count += 1
+                except socket.error:
+                    pass
                 except (ConnectionResetError, ConnectionAbortedError):
                     network_state = 'Failed'
+                    
+                #print(count)
             elif network_state == "Failed":
                 break
         
-        p.close()
+        self.close()
     
     def start_thread(self, ip, port): #init networking thread
         self.sock.settimeout(self.timeout)
         self.net_thread = threading.Thread(target = self.network_thread, 
-                                                args = (ip, port, self.name),
+                                                args = (ip, port),
                                                 daemon = True)
         self.net_thread.start()
 
@@ -188,13 +196,14 @@ def main():
     
     game = Game()
     
+    i = 0
+    last_y = 0
     while run:
-        key_event = None
-        
         #cover screen
         screen.fill(background_color)
         
         #handle events
+        key_event = None #contains current keypress
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 run = False
@@ -213,6 +222,7 @@ def main():
                 state = "Connect"
         elif state == "Connect":
             if client_net_state == "Connected":
+                client.tx.put_nowait(packet.PlayerPacket(client.name, client.y)) #send initial packet
                 state = "Game"
             elif client_net_state == "Failed":
                 state = "Failed"
@@ -257,6 +267,20 @@ def main():
             #update state if new data is available
             if not client.rx.empty():
                 game.state = client.rx.get_nowait()
+                
+            keys = pygame.key.get_pressed()
+            if keys[pygame.K_UP]: #move up
+                if client.y > 0:
+                    client.y -= 1
+            elif keys[pygame.K_DOWN]: #move down
+                if client.y < h_screen // 2:
+                    client.y += 1
+            
+            
+            if i%5 == 0 and client.y != last_y: #only send update when needed
+                client.tx.put_nowait(packet.PlayerPacket(client.name, client.y))
+                last_y = client.y
+                print("Sent packet")
             
             game.draw(screen)
         elif state == "Failed":
@@ -276,6 +300,8 @@ def main():
         #draw window
         window.blit(pygame.transform.scale(screen, window.get_rect().size), (0, 0))
         pygame.display.flip()
+        
+        i += 1
 
 if __name__ == '__main__':
     main()
