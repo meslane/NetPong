@@ -1,5 +1,6 @@
 import pygame
 import socket
+import select
 import time
 import threading
 import queue
@@ -20,6 +21,11 @@ class Game:
         self.color = kwargs.get('color', (255,255,255))
     
         self.state = packet.GamePacket()
+        self.sock = socket.socket()
+        
+        self.connect_thread = None
+        self.connect_state = "Attempt" #Attempt, Connected, Fail
+        self.connect_state_queue = queue.Queue()
         
         self.ball = pygame.Rect(0, 0, 2, 2)
         self.left_paddle = pygame.Rect(0,0,2,2*paddle_len)
@@ -37,6 +43,21 @@ class Game:
                                     self.big_font, color = (100,100,100))
         self.player2_score = gui.Text('', (w_screen//2 + 100, 20), 
                                     self.big_font, color = (100,100,100))
+    
+    def attempt_connection(self, ip, port):
+        self.connect_thread = threading.Thread(target = self.await_connection,
+                                            args = (ip, port),
+                                            daemon = True)
+        self.connect_thread.start()
+        
+    def await_connection(self, ip, port):
+        try:
+            self.sock = socket.socket()
+            self.sock.connect((ip, port))
+            self.sock.setblocking(False)
+            self.connect_state_queue.put("Connected")
+        except ConnectionRefusedError:
+            self.connect_state_queue.put("Failed")
     
     #take packet data and use it to draw the game surface
     def draw(self, surface):
@@ -64,77 +85,6 @@ class Game:
 
         self.player1_score.draw(surface)
         self.player2_score.draw(surface)
-
-class Player:
-    def __init__(self, username):
-        self.name = username
-        self.sock = socket.socket()
-    
-        self.timeout = 5 #socket timeout
-    
-        self.tx = queue.Queue() #outgoing packet queue
-        self.rx = queue.Queue() #incoming packet queue
-        self.state = queue.Queue() #thread state queue
-        
-        self.net_thread = None
-    
-        self.y = 0 #paddle y position
-    
-    #connect to server
-    def connect(self, ip, port):
-        self.sock.connect((ip, port))
-        self.sock.setblocking(False)
-    
-    def close(self):
-        self.sock.close()
-
-    def network_thread(self, ip, port):
-        network_state = "Connecting"
-
-        count = 0
-    
-        print("Starting loop")
-        while True:
-            #broadcase state
-            self.state.put_nowait(network_state)
-        
-            #actions + transitions
-            if network_state == "Connecting":
-                try:
-                    self.connect(ip, port)
-                    network_state = "Connected"
-                except (ConnectionRefusedError, TimeoutError, socket.gaierror):
-                    network_state = "Failed"
-            elif network_state == "Connected":
-                try:
-                    if not self.tx.empty(): #main net thread
-                        player_packet = self.tx.get()
-                        self.sock.sendall(player_packet.pack_bytes())
-                except ConnectionResetError:
-                    network_state == "Failed"
-        
-                try:
-                    server_packet = packet.GamePacket()
-                    server_packet.unpack_bytes(self.sock.recv(42))
-                    self.rx.put_nowait(server_packet) #send rx packet out of thread
-                    count += 1
-                except socket.error:
-                    pass
-                except (ConnectionResetError, ConnectionAbortedError):
-                    network_state = 'Failed'
-                    
-                #print(count)
-            elif network_state == "Failed":
-                break
-        
-        self.close()
-    
-    def start_thread(self, ip, port): #init networking thread
-        self.sock.settimeout(self.timeout)
-        self.net_thread = threading.Thread(target = self.network_thread, 
-                                                args = (ip, port),
-                                                daemon = True)
-        self.net_thread.start()
 
 def main():
     #setup
@@ -190,14 +140,12 @@ def main():
     state = "Menu"
     run = True
     
-    #player class
-    client = Player('')
-    client_net_state = None
-    
     game = Game()
     
     i = 0
+    player_y = 45
     last_y = 0
+    connect_thread = None
     while run:
         #cover screen
         screen.fill(background_color)
@@ -210,30 +158,27 @@ def main():
             elif event.type == pygame.KEYDOWN:
                 key_event = event
     
-        #grab client thread state
-        while not client.state.empty():
-            client_net_state = client.state.get_nowait()
-    
-        #state machine (transitions)
+        '''
+        State Machine Transitions
+        '''
         if state == "Menu":
             if start_button.clicked:
-                client.name = name_box.text
-                client.start_thread(ip_box.text, 10000)
+                player_y = 45
+                last_y = 0
+                game.attempt_connection(ip_box.text, 10000)
                 state = "Connect"
         elif state == "Connect":
-            if client_net_state == "Connected":
-                client.tx.put_nowait(packet.PlayerPacket(client.name, client.y)) #send initial packet
-                state = "Game"
-            elif client_net_state == "Failed":
-                state = "Failed"
+            if not game.connect_state_queue.empty(): #if finished
+                state = game.connect_state_queue.get()
+                
+                if state == "Connected":
+                    state = "Game"
+                elif state == "Failed":
+                    state = "Failed"
         elif state == "Game":
-            if client_net_state == "Connected":
-                state = "Game"
-                if key_event and key_event.key == pygame.K_ESCAPE: #pause if user hits escape key
-                    state = "Pause"
-            else:
-                state = "Failed"
-            pass
+            state = "Game"
+            if key_event and key_event.key == pygame.K_ESCAPE: #pause if user hits escape key
+                state = "Pause"
         elif state == "Failed":
             if fail_ok_button.clicked:
                 state = "Menu"
@@ -243,7 +188,9 @@ def main():
             elif pause_quit_button.clicked:
                 state = "Menu"
     
-        #state machine (actions)
+        '''
+        State Machine Actions
+        '''
         if state == "Menu":
             #draw logo
             screen.blit(logo, (w_screen//2 - logo.get_width()//2, 
@@ -264,33 +211,36 @@ def main():
         elif state == "Connect":
             connecting_text.draw(screen)
         elif state == "Game":
-            #update state if new data is available
-            if not client.rx.empty():
-                game.state = client.rx.get_nowait()
-                
             keys = pygame.key.get_pressed()
             if keys[pygame.K_UP]: #move up
-                if client.y > 0:
-                    client.y -= 1
+                if player_y > 0:
+                    player_y -= 1
             elif keys[pygame.K_DOWN]: #move down
-                if client.y < h_screen // 2:
-                    client.y += 1
+                if player_y < h_screen // 2:
+                    player_y += 1
             
+            r, w, e = select.select([game.sock], [game.sock], [game.sock], 1)
             
-            if i%5 == 0 and client.y != last_y: #only send update when needed
-                client.tx.put_nowait(packet.PlayerPacket(client.name, client.y))
-                last_y = client.y
-                print("Sent packet")
+            if r:
+                try:
+                    p = game.sock.recv(42)
+                    game.state.unpack_bytes(p)
+                except ConnectionResetError:
+                    state = "Failed"
+                print("Read")
+            if w and player_y != last_y:
+                player_packet = packet.PlayerPacket(name_box.text, player_y)
+                game.sock.sendall(player_packet.pack_bytes())
+                last_y = player_y
+                print("Write")
             
             game.draw(screen)
         elif state == "Failed":
+            game.sock.close()
             failed_text.draw(screen)
             fail_ok_button.draw(screen, scale=(w_screen / window.get_width(), 
                                         h_screen / window.get_height()))
         elif state == "Pause":
-            if not client.rx.empty(): #empty queue while paused to avoid backlog
-                client.rx.get_nowait()
-        
             pause_resume_button.draw(screen, scale=(w_screen / window.get_width(), 
                                         h_screen / window.get_height()))
             

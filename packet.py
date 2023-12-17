@@ -59,7 +59,7 @@ class GamePacket(Packet):
         self.score = (data[6], data[7])
         
     def __str__(self):
-        return "Ball: {}, P1: {}, P2: {}, P1 Y: {}, P2 Y: {}, Score: {}".format(self.ball, self.p1, self.p2, self.p1_name, self.p2_name, self.score)
+        return "Ball: {}, P1 Y: {}, P2 Y: {}, P1: {}, P2: {}, Score: {}".format(self.ball, self.p1y, self.p2y, self.p1_name, self.p2_name, self.score)
 
 '''
 Client -> Server Game Packet
