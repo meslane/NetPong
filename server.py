@@ -18,6 +18,9 @@ class Server:
         self.sock = socket.socket()
         self.state = packet.GamePacket() #current game state to be sent to users
         
+        self.ball_subpixel = (80,45) #float vector to convert to int for sending out state
+        self.ball_velocity = (1,0) #vector describing ball velocity
+        
         self.last_tx = 0
         self.tx_interval = 0.033
         
@@ -77,8 +80,12 @@ class Server:
                     
                     #print(user_packet)
                     
-                
+                '''
+                Do Game Logic
+                '''
                 if loop_time - self.last_tx >= self.tx_interval:
+                    
+                
                     for user in w: #writable sockets 
                         user.sendall(self.state.pack_bytes())
                         
@@ -90,6 +97,7 @@ class Server:
         
 if __name__ == '__main__':
     s = Server(10000)
+    s.state.ball = (80,45)
     s.start()
     
     s.listen()

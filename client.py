@@ -43,6 +43,9 @@ class Game:
                                     self.big_font, color = (100,100,100))
         self.player2_score = gui.Text('', (w_screen//2 + 100, 20), 
                                     self.big_font, color = (100,100,100))
+                                    
+        self.last_update = 0
+        self.update_interval = 0.01 
     
     def attempt_connection(self, ip, port):
         self.connect_thread = threading.Thread(target = self.await_connection,
@@ -145,6 +148,7 @@ def main():
     i = 0
     player_y = 45
     last_y = 0
+    
     connect_thread = None
     while run:
         #cover screen
@@ -211,13 +215,16 @@ def main():
         elif state == "Connect":
             connecting_text.draw(screen)
         elif state == "Game":
-            keys = pygame.key.get_pressed()
-            if keys[pygame.K_UP]: #move up
-                if player_y > 0:
-                    player_y -= 1
-            elif keys[pygame.K_DOWN]: #move down
-                if player_y < h_screen // 2:
-                    player_y += 1
+            if time.time() - game.last_update > game.update_interval:
+                keys = pygame.key.get_pressed()
+                if keys[pygame.K_UP]: #move up
+                    if player_y > 0:
+                        player_y -= 1
+                elif keys[pygame.K_DOWN]: #move down
+                    if player_y < h_screen // 2:
+                        player_y += 1
+                        
+                game.last_update = time.time()
             
             r, w, e = select.select([game.sock], [game.sock], [game.sock], 1)
             
@@ -227,12 +234,10 @@ def main():
                     game.state.unpack_bytes(p)
                 except ConnectionResetError:
                     state = "Failed"
-                print("Read")
             if w and player_y != last_y:
                 player_packet = packet.PlayerPacket(name_box.text, player_y)
                 game.sock.sendall(player_packet.pack_bytes())
                 last_y = player_y
-                print("Write")
             
             game.draw(screen)
         elif state == "Failed":
@@ -247,7 +252,9 @@ def main():
             pause_quit_button.draw(screen, scale=(w_screen / window.get_width(), 
                                         h_screen / window.get_height()))
     
-        #draw window
+        '''
+        Draw Window
+        '''
         window.blit(pygame.transform.scale(screen, window.get_rect().size), (0, 0))
         pygame.display.flip()
         
