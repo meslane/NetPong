@@ -8,10 +8,19 @@ import time
 
 import packet
 
+def vec2add(a, b):
+    return (a[0] + b[0], a[1] + b[1])
+
+def vec2mul(a, b):
+    return (a[0] * b[0], a[1] * b[1])
+
+def vec2quantize(a):
+    return (int(a[0]), int(a[1]))
+
 def init_socket(sock):
     #sock.settimeout(5)
     sock.setblocking(False)
-    
+
 class Server:
     def __init__(self, port, **kwargs):
         self.port = port
@@ -19,7 +28,12 @@ class Server:
         self.state = packet.GamePacket() #current game state to be sent to users
         
         self.ball_subpixel = (80,45) #float vector to convert to int for sending out state
-        self.ball_velocity = (1,0) #vector describing ball velocity
+        self.ball_velocity = (1,1) #vector describing ball velocity
+        
+        self.w_court = 160
+        self.h_court = 90
+        self.paddle_sep = 5
+        self.paddle_len = 9
         
         self.last_tx = 0
         self.tx_interval = 0.033
@@ -68,7 +82,7 @@ class Server:
                         elif user_index == 1:
                             self.state.p2y = user_packet.pos
                             self.state.p2_name = name_str
-                    except ConnectionResetError:
+                    except (ConnectionResetError, struct.error):
                         self.users.remove(user)
                         
                         if user_index == 0:
@@ -84,7 +98,30 @@ class Server:
                 Do Game Logic
                 '''
                 if loop_time - self.last_tx >= self.tx_interval:
+                    self.ball_subpixel = vec2add(self.ball_subpixel, self.ball_velocity)
                     
+                    #out of bounds
+                    if self.ball_subpixel[0] < 0:
+                        self.ball_subpixel = (80,45)
+                        self.state.score = vec2add(self.state.score,(0,1))
+                    elif self.ball_subpixel[0] > self.w_court:
+                        self.ball_subpixel = (80,45)
+                        self.state.score = vec2add(self.state.score,(1,0))
+                        
+                    #wall bounce
+                    if self.ball_subpixel[1] <= 0 or self.ball_subpixel[1] >= self.h_court:
+                        self.ball_velocity = vec2mul(self.ball_velocity, (1,-1))
+                
+                    #paddle hit (left)
+                    if self.ball_subpixel[0] == self.paddle_sep:
+                        if abs(self.state.p1y - self.ball_subpixel[1]) <= self.paddle_len/2:
+                            self.ball_velocity = vec2mul(self.ball_velocity, (-1,1))
+                    #paddle hit (right)
+                    elif self.ball_subpixel[0] == self.w_court - self.paddle_sep:
+                         if abs(self.state.p2y - self.ball_subpixel[1]) <= self.paddle_len/2:
+                            self.ball_velocity = vec2mul(self.ball_velocity, (-1,1))
+                
+                    self.state.ball = vec2quantize(self.ball_subpixel)
                 
                     for user in w: #writable sockets 
                         user.sendall(self.state.pack_bytes())

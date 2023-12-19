@@ -59,7 +59,7 @@ class Game:
             self.sock.connect((ip, port))
             self.sock.setblocking(False)
             self.connect_state_queue.put("Connected")
-        except ConnectionRefusedError:
+        except (ConnectionRefusedError, TimeoutError, socket.gaierror, OSError):
             self.connect_state_queue.put("Failed")
     
     #take packet data and use it to draw the game surface
@@ -79,15 +79,15 @@ class Game:
         self.player1_score.text = '{}'.format(self.state.score[0])
         self.player2_score.text = '{}'.format(self.state.score[1])
         
-        pygame.draw.rect(surface, self.color, self.ball)
-        pygame.draw.rect(surface, self.color, self.left_paddle)
-        pygame.draw.rect(surface, self.color, self.right_paddle)
-        
         self.player1_name.draw(surface)
         self.player2_name.draw(surface)
 
         self.player1_score.draw(surface)
         self.player2_score.draw(surface)
+    
+        pygame.draw.rect(surface, self.color, self.ball)
+        pygame.draw.rect(surface, self.color, self.left_paddle)
+        pygame.draw.rect(surface, self.color, self.right_paddle)
 
 def main():
     #setup
