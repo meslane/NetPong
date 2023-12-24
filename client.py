@@ -43,7 +43,9 @@ class Game:
                                     self.big_font, color = (100,100,100))
         self.player2_score = gui.Text('', (w_screen//2 + 100, 20), 
                                     self.big_font, color = (100,100,100))
-                                    
+        
+        self.arrow = pygame.image.load('arrow.png')
+        
         self.last_update = 0
         self.update_interval = 0.01 
     
@@ -84,6 +86,15 @@ class Game:
 
         self.player1_score.draw(surface)
         self.player2_score.draw(surface)
+        
+        if self.state.server != 0:
+            if self.state.server == 1:
+                arrow_x = -100
+            else:
+                arrow_x = 100
+        
+            surface.blit(self.arrow, (w_screen//2 - self.arrow.get_width()//2 + arrow_x, 
+                                h_screen//2 - self.arrow.get_height()//2 - 85))
     
         pygame.draw.rect(surface, self.color, self.ball)
         pygame.draw.rect(surface, self.color, self.left_paddle)
@@ -148,6 +159,8 @@ def main():
     i = 0
     player_y = 45
     last_y = 0
+    player_key = 0
+    last_key = 0
     
     connect_thread = None
     while run:
@@ -224,20 +237,27 @@ def main():
                     if player_y < h_screen // 2:
                         player_y += 1
                         
+                if keys[pygame.K_SPACE]:
+                    player_key = 32
+                else:
+                    player_key = 0
+                        
                 game.last_update = time.time()
             
             r, w, e = select.select([game.sock], [game.sock], [game.sock], 1)
             
             if r:
                 try:
-                    p = game.sock.recv(42)
+                    p = game.sock.recv(game.state.length)
                     game.state.unpack_bytes(p)
                 except ConnectionResetError:
                     state = "Failed"
-            if w and player_y != last_y:
+            if w and player_y != last_y or player_key != last_key:
                 player_packet = packet.PlayerPacket(name_box.text, player_y)
+                player_packet.key = player_key
                 game.sock.sendall(player_packet.pack_bytes())
                 last_y = player_y
+                last_key = player_key
             
             game.draw(screen)
         elif state == "Failed":
