@@ -27,7 +27,6 @@ def vec2mag(a): #returns scalar
     return math.sqrt(a[0] ** 2 + a[1] ** 2)
 
 def init_socket(sock):
-    #sock.settimeout(5)
     sock.setblocking(False)
 
 class Server:
@@ -161,7 +160,6 @@ class Server:
                             self.ball_subpixel = (80,100)
                             self.state.score = vec2add(self.state.score,(1,0))
                             self.state.server = 1
-                            
                         if self.state.score[0] > self.win_score or self.state.score[1] > self.win_score:
                             self.end_start = loop_time
                             self.state.server = 4 #win mode
