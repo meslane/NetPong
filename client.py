@@ -44,6 +44,11 @@ class Game:
         self.player2_score = gui.Text('', (w_screen//2 + 100, 20), 
                                     self.big_font, color = (100,100,100))
         
+        self.waiting_text = gui.Text('Waiting for Players', (w_screen//2, h_screen//2), 
+                                    self.big_font, color = (255,255,255))
+        self.winner_text = gui.Text('__ Wins!', (w_screen//2, h_screen//2), 
+                                    self.big_font, color = (255,255,255))
+        
         self.arrow = pygame.image.load('arrow.png')
         
         self.last_update = 0
@@ -87,15 +92,26 @@ class Game:
         self.player1_score.draw(surface)
         self.player2_score.draw(surface)
         
-        if self.state.server != 0:
+        if self.state.server == 0:
+            pass
+        elif self.state.server == 1 or self.state.server == 2:
             if self.state.server == 1:
                 arrow_x = -100
-            else:
+            if self.state.server == 2:
                 arrow_x = 100
         
             surface.blit(self.arrow, (w_screen//2 - self.arrow.get_width()//2 + arrow_x, 
                                 h_screen//2 - self.arrow.get_height()//2 - 85))
-    
+        elif self.state.server == 3:
+            self.waiting_text.draw(surface)
+        elif self.state.server == 4:
+            if (self.state.score[0] > self.state.score[1]):
+                self.winner_text.text = "{} Wins!".format(self.player1_name.text)
+            else:
+                self.winner_text.text = "{} Wins!".format(self.player2_name.text)
+            
+            self.winner_text.draw(surface)
+        
         pygame.draw.rect(surface, self.color, self.ball)
         pygame.draw.rect(surface, self.color, self.left_paddle)
         pygame.draw.rect(surface, self.color, self.right_paddle)
@@ -203,6 +219,7 @@ def main():
             if pause_resume_button.clicked:
                 state = "Game"
             elif pause_quit_button.clicked:
+                game.sock.close()
                 state = "Menu"
     
         '''

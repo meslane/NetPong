@@ -1,7 +1,6 @@
 import socket
 import select
 import threading
-import queue
 import random
 import struct
 import time
@@ -36,7 +35,7 @@ class Server:
         self.port = port
         self.sock = socket.socket()
         self.state = packet.GamePacket() #current game state to be sent to users
-        self.state.server = 1
+        self.state.server = 3
         
         self.ball_subpixel = (-2,-2) #float vector to convert to int for sending out state
         self.ball_velocity = (0,0) #vector describing ball velocity
@@ -55,11 +54,16 @@ class Server:
         self.last_hit = 0
         self.hit_interval = 0.2
         
+        self.end_start = 0
+        self.end_interval = 5
+        
         self.users = [] #list of user sockets
         self.open = True
         
         self.p1_key = 0 #user key presses (for serving)
         self.p2_key = 0
+        
+        self.win_score = 10
         
         self.connection_thread = threading.Thread(target = self.await_connection, daemon = True)
         
@@ -98,6 +102,14 @@ class Server:
     
         user_packet = packet.PlayerPacket(None, None)
         
+        '''
+        Server State Machine:
+        -0 = game
+        -1 = p1_serve
+        -2 = p2_serve
+        -3 = waiting
+        -4 = end
+        '''
         try:
             if len(self.users) > 0:
                 r, w, e = select.select(self.users, self.users, self.users, 1)
@@ -121,22 +133,25 @@ class Server:
                         self.users.remove(user)
                         
                         if user_index == 0:
-                            self.state.p1_name = ""
+                            if len(self.users) > 0:
+                                self.state.p1_name = self.state.p2_name
+                                self.state.score = (self.state.score[1], self.state.score[0])
+                                self.state.p2_name = ""
+                            else:
+                                self.state.p1_name = ""
                         elif user_index == 1:
                             self.state.p2_name = ""
                         
                         print("Disconnected User")
                     
                 '''
-                Do Game Logic
+                Do Game Logic + State machine
                 '''
                 if loop_time - self.last_tick >= self.tick_interval:
                     '''
-                    Ball serve transitions + actions
+                    State machine transitions
                     '''
-                    if self.state.server == 0: #propagate if ball in play
-                        self.ball_subpixel = vec2add(self.ball_subpixel, self.ball_velocity)
-                        
+                    if self.state.server == 0:
                         #out of bounds
                         if self.ball_subpixel[0] < 0: #out on player 1
                             self.ball_subpixel = (80,100)
@@ -146,41 +161,86 @@ class Server:
                             self.ball_subpixel = (80,100)
                             self.state.score = vec2add(self.state.score,(1,0))
                             self.state.server = 1
+                            
+                        if self.state.score[0] > self.win_score or self.state.score[1] > self.win_score:
+                            self.end_start = loop_time
+                            self.state.server = 4 #win mode
                     elif self.state.server == 1:
-                        if self.p1_key == 32:
+                        if len(self.users) < 2:
+                            self.state.server = 3
+                        elif self.p1_key == 32:
                             self.ball_subpixel = (self.paddle_sep + 1, self.state.p1y)
                             self.ball_velocity = (1,0)
                             self.state.server = 0
                             self.p1_key = 0
                     elif self.state.server == 2:
-                        if self.p2_key == 32:
+                        if len(self.users) < 2:
+                            self.state.server = 3
+                        elif self.p2_key == 32:
                             self.ball_subpixel = (self.w_court - self.paddle_sep - 1, self.state.p2y)
                             self.ball_velocity = (-1,0)
                             self.state.server = 0
                             self.p2_key = 0
-                        
-                    #wall bounce
-                    if self.ball_subpixel[1] <= 0 or self.ball_subpixel[1] >= self.h_court:
-                        self.ball_velocity = vec2mul(self.ball_velocity, (1,-1))
-                
-                    #paddle hit (left)
-                    if int(self.ball_subpixel[0]) == self.paddle_sep:
-                        if abs(self.state.p1y - self.ball_subpixel[1]) <= self.paddle_len/2 and (loop_time - self.last_hit) > self.hit_interval:
-                            self.ball_velocity = self.get_velocity_from_hit(self.state.p1y,
-                                                                        self.ball_subpixel,
-                                                                        self.ball_velocity)
-                            self.last_hit = loop_time                                               
-                    #paddle hit (right)
-                    elif int(self.ball_subpixel[0]) == self.w_court - self.paddle_sep:
-                        if abs(self.state.p2y - self.ball_subpixel[1]) <= self.paddle_len/2 and (loop_time - self.last_hit) > self.hit_interval:
-                            self.ball_velocity = self.get_velocity_from_hit(self.state.p2y,
-                                                                        self.ball_subpixel,
-                                                                        self.ball_velocity)
-                            self.last_hit = loop_time
+                    elif self.state.server == 3: #wait for players
+                        if len(self.users) >= 2:
+                            self.state.server = 1 #start game
+                    elif self.state.server == 4: #end
+                        if loop_time - self.end_start > self.end_interval:
+                            #determine who serves first based on winner
+                            if self.state.score[0] > self.state.score[1] and len(self.users) >= 2:
+                                self.state.server = 1
+                            elif self.state.score[1] > self.state.score[0] and len(self.users) >= 2:
+                                self.state.server = 2
+                            else:
+                                self.state.server = 3
+                                
+                            self.state.score = (0,0)
+                            self.state.ball = (80,100)
+                            self.p1y = 45
+                            self.p2y = 45
+                    '''
+                    State machine actions
+                    '''
+                    if self.state.server == 0: #game
+                        self.ball_subpixel = vec2add(self.ball_subpixel, self.ball_velocity)
+                            
+                        #wall bounce
+                        if self.ball_subpixel[1] <= 0 or self.ball_subpixel[1] >= self.h_court:
+                            self.ball_velocity = vec2mul(self.ball_velocity, (1,-1))
+                    
+                        #paddle hit (left)
+                        if int(self.ball_subpixel[0]) == self.paddle_sep:
+                            if abs(self.state.p1y - self.ball_subpixel[1]) <= self.paddle_len/2 and (loop_time - self.last_hit) > self.hit_interval:
+                                self.ball_velocity = self.get_velocity_from_hit(self.state.p1y,
+                                                                            self.ball_subpixel,
+                                                                            self.ball_velocity)
+                                self.last_hit = loop_time                                               
+                        #paddle hit (right)
+                        elif int(self.ball_subpixel[0]) == self.w_court - self.paddle_sep:
+                            if abs(self.state.p2y - self.ball_subpixel[1]) <= self.paddle_len/2 and (loop_time - self.last_hit) > self.hit_interval:
+                                self.ball_velocity = self.get_velocity_from_hit(self.state.p2y,
+                                                                            self.ball_subpixel,
+                                                                            self.ball_velocity)
+                                self.last_hit = loop_time
+                    elif self.state.server == 1: #p1 serve
+                        pass
+                    elif self.state.server == 2: #p2 serve
+                        pass
+                    elif self.state.server == 3: #waiting for players
+                        pass
+                    elif self.state.server == 4:
+                        pass
+                    
+                    '''
+                    Universal Actions
+                    '''
                     self.state.ball = vec2quantize(self.ball_subpixel)
                     
                     self.last_tick = loop_time
                 
+                '''
+                Send updates to users
+                '''
                 if loop_time - self.last_tx >= self.tx_interval:
                     for user in w: #writable sockets 
                         user.sendall(self.state.pack_bytes())

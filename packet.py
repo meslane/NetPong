@@ -2,19 +2,6 @@ import socket
 import struct
 
 '''
-Incoming packet format:
-    -user ID
-    -user position (y)
-
-Outgoing packet format:
-    -ball position (x, y)
-    -user #1 position (y)
-    -user #2 position (y)
-    -user score (p1, p2)
-'''
-
-
-'''
 Base packet class
 '''
 class Packet:
@@ -40,7 +27,7 @@ class GamePacket(Packet):
         self.p1_name = " "
         self.p2_name = " "
         self.score = (0,0) #player score (p1, p2)
-        self.server = 0 #0 = none, 1 = p1, 2 = p2
+        self.server = 0 #0 = game, 1 = p1, 2 = p2, 3 = waiting, 4 = end
         
         self.length = struct.calcsize(self.packstring)
         
@@ -92,31 +79,3 @@ class PlayerPacket(Packet):
         
     def __str__(self):
         return "Username {}, Pos: {}".format(self.name, self.pos)
-    
-if __name__ == '__main__':
-    packet = GamePacket()
-    packet.ball = (123, 45)
-    packet.score = (3, 4)
-    print(packet)
-    
-    b = packet.pack_bytes()
-    
-    print(b)
-    
-    packet2 = GamePacket()
-    packet2.unpack_bytes(b)
-    print(packet2)
-    
-    
-    p3 = PlayerPacket()
-    p4 = PlayerPacket()
-    
-    p3.player = 2
-    p3.pos = 69
-    
-    b = p3.pack_bytes()
-    print(b)
-    
-    p4.unpack_bytes(b)
-    print(p4)
-    

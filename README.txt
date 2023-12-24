@@ -2,10 +2,12 @@
     160 (x) by 90 (y) playfield
     
 ~== CURRENT BUGS ==~
+    -Should refactor user code on server to allow the second player to retain their slot if the first player leaves, or at least transfer their score
+
     -Hits on the left paddle upper side occasionally deflect upwards and back instead of upwards and forward [FIXED]
-	-Can reliabily reproduce
-	-Seems to be caused by multiple hits registering in a short period
-	-Added hit timeout to fix
+		-Can reliabily reproduce
+		-Seems to be caused by multiple hits registering in a short period
+		-Added hit timeout to fix
 
     -Netcode is extremely shitty [FIXED]
         -Users frequenty desync because of all the separate threads
